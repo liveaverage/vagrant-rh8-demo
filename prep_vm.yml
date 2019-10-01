@@ -1,0 +1,73 @@
+- name: Stage Registration and Docker Storage
+  hosts: all
+  become: yes
+  gather_facts: no
+  vars:
+    pkgs:
+      - cockpit
+      - cockpit-session-recording
+      - sssd
+      - tlog
+      - docker
+      - cockpit-composer
+      - lorax-composer
+      - composer-cli
+      - cockpit-packagekit
+      - cockpit-system
+      - sos
+  pre_tasks:
+    - name: Register via raw
+      raw: subscription-manager register --org=YOURORG --activationkey=YOURKEY --force
+
+    - name: Install Python
+      raw: sudo yum install -y python2 python36
+
+  tasks:
+
+  - name: Install cockpit
+    yum:
+      pkg: "{{ pkgs }}"
+      state: latest
+
+  - name: Reset root password
+    user:
+      name: root
+      update_password: always
+      password: '$6$OjiNHcpDIjtOaDGN$x6ntWOpiRzlqFJmfjCCgDL7YoVi.OnXJdTMyRVp2bPCNU5KKm9mrejLumkO8rjdM2OOaJiG0iDnCx15ZSKLqQ0'
+      ### Password: redhat ### Use for cockpit login
+
+  - name: Copy sample sssd.conf
+    template:
+      src: sssd.conf.j2
+      dest: /etc/sssd/sssd.conf
+      mode: 0600
+
+  - name: Enable sssd session recording
+    copy:
+      dest: /etc/sssd/conf.d/sssd-session-recording.conf
+      content: |
+        [session_recording]
+        scope = all
+
+  - name: Restart sssd
+    service:
+      name: sssd
+      state: restarted
+
+  - name: Enable session recording by default
+    copy:
+      dest: /etc/tlog/tlog-rec-session.conf
+      content: |
+        {"shell":"/bin/bash","notice":"\nATTENTION! Your session is being recorded!\n\n","latency":10,"payload":2048,"log":{"input":true,"output":true,"window":true},"limit":{"rate":16384,"burst":32768,"action":"pass"},"file":{"path":""},"syslog":{"facility":"authpriv","priority":"info"},"journal":{"priority":"info","augment":true},"writer":"journal"}
+
+  - name: Enable cockpit
+    raw: systemctl enable cockpit.socket; systemctl start cockpit.socket
+
+  - name: Enable composer
+    raw: systemctl enable lorax-composer.socket;  systemctl start lorax-composer
+
+  - name: Enable firewalld exception for Cockpit
+    firewalld:
+      port: 9090/tcp
+      permanent: yes
+      state: enabled
